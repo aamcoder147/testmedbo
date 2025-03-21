@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: app  # Replace with your app's name
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: SECRET_KEY
+        value: 1234  # Replace with your actual secret key
