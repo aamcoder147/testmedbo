@@ -1,0 +1,183 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Booking Confirmation</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+    
+        body {
+            background: linear-gradient(135deg, #1a1a2e, #0d0f18);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+    
+        .booking-container {
+            background: var(--secondary);
+            border-radius: 1.5rem;
+            box-shadow: var(--shadow);
+            padding: 2rem 3rem;
+            max-width: 500px;
+            width: 100%;
+            animation: fadeIn 0.5s ease-out;
+        }
+    
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    
+        h1 {
+            text-align: center;
+            color: var(--accent);
+            margin-bottom: 1rem;
+        }
+    
+        .booking-form {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+    
+        .booking-form h2 {
+            margin-top: 0;
+            color: var(--accent);
+        }
+    
+        p {
+            margin: 0.5rem 0;
+            line-height: 1.5;
+        }
+    
+        p strong {
+            color: var(--accent);
+        }
+    
+        button {
+            background: var(--accent);
+            border: none;
+            padding: 0.8rem 1.5rem;
+            color: white;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.3s, transform 0.3s;
+            width: 100%;
+        }
+    
+        button:hover {
+            background: #0ba4d1;
+            transform: translateY(-2px);
+        }
+    
+        button:active {
+            transform: translateY(0);
+        }
+    
+        @media (max-width: 600px) {
+            .booking-container {
+                padding: 1.5rem 1rem;
+            }
+        }
+
+        .confirmation-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: #16213e;
+            border-radius: 1.5rem;
+            color: #e6e6e6;
+            text-align: center;
+        }
+        .confirmation-details {
+            margin-bottom: 2rem;
+        }
+        .delete-btn {
+            background: #f87171;
+            color: white;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .delete-btn:hover {
+            background: #dc2626;
+        }
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.error {
+            background: #f87171;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+
+        <!-- Flash messages -->
+        <div class="flash-messages">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-message {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+    <div class="booking-container">
+        <h1>Booking Confirmed!</h1>
+        <div class="booking-form">
+            <h2>Appointment Details</h2>
+            <p><strong>Doctor:</strong> {{ doctor_name }}</p>
+            <p><strong>Patient Name:</strong> {{ patient_name }}</p>
+            <p><strong>Date:</strong> {{ booking_date }}</p>
+            <p><strong>Time:</strong> {{ booking_time }}</p>
+        </div>
+        <!-- Delete Booking Button -->
+        <form action="/delete-booking/{{ booking_id }}" method="POST">
+            <input type="hidden" name="source" value="confirmation">
+            <button type="submit" class="delete-btn">Delete My Booking</button>
+        </form>
+        
+        <br>
+        <button onclick="window.location.href='/'">Back to Home</button>
+        </form>
+    </div>
+</body>
+</html>
+
+

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Doctor Dashboard</title>
+    <style>
+        :root {
+            --secondary: #16213e; /* Define the secondary color */
+        }
+
+        body {
+            background: #1a1a2e;
+            color: #e6e6e6;
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 2rem;
+        }
+
+        h1 {
+            color: #0ea5e9;
+        }
+
+        h2 {
+            color: #4CAF50;
+        }
+
+        h3 {
+            color: #88d1f1;
+            margin-top: 1.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+            table-layout: auto; /* Fit table to content */
+        }
+
+        th, td {
+            padding: 1rem;
+            border: 1px solid #2c3a5a;
+            text-align: left;
+        }
+
+        th {
+            background: #16213e;
+            color: #0ea5e9;
+        }
+
+        .notes-cell {
+            white-space: pre-wrap; /* Preserve line breaks */
+            word-wrap: break-word; /* Break long words */
+            min-width: 200px; /* Minimum width for notes cell */
+        }
+
+        .save-all-btn {
+            background: #0ea5e9;
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+        }
+
+        .show-all-btn {
+            background: #4CAF50;
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+        }
+
+        .date-filter {
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .date-filter label {
+            font-size: 1.2rem;
+            color: #88d1f1;
+        }
+
+        .date-filter input {
+            padding: 0.5rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.5rem;
+            background: #1a1a2e;
+            color: #e6e6e6;
+        }
+
+        .month-header {
+            margin-top: 2rem;
+        }
+
+        .booking-container {
+            max-width: auto;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: var(--secondary);
+            border-radius: 1.5rem;;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.721);
+        }
+
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.error {
+            background: #f87171;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+        <!-- Flash messages -->
+        <div class="flash-messages">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-message {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+    <div class="booking-container">
+    <h1>Doctor Dashboard</h1>
+
+    <!-- Date Filter and Save All Button -->
+    <div class="date-filter">
+        <label for="datePicker">Choose a Date:</label>
+        <input type="date" id="datePicker" onchange="filterBookingsByDate()">
+        <button class="show-all-btn" onclick="showAllBookings()">Show All</button>
+        <button class="save-all-btn" onclick="saveAllNotes()">Save All</button>
+        <button class="save-all-btn" onclick="window.location.href='/'">Back to Home</button>
+    </form>
+    </div>
+
+    <!-- Bookings by Month -->
+    {% for month_year, days in bookings_by_month.items() %}
+    <div class="month-header" data-month="{{ month_year }}">
+        <h2>{{ month_year }}</h2>
+        {% for day, bookings in days.items() %}
+        <div class="booking-container" data-date="{{ day }}">
+            <h3>{{ day }}</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Patient Name</th>
+                        <th>Phone Number</th>
+                        <th>Time</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for booking in bookings %}
+                    <tr>
+                        <td>{{ booking[3] }}</td>
+                        <td>{{ booking[4] }}</td>
+                        <td>{{ booking[6] }}</td>
+                        <td class="notes-cell" contenteditable="true" data-booking-id="{{ booking[0] }}">{{ booking[7] or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+
+    <!-- JavaScript for Date Filtering and Save All -->
+    <script>
+        // Function to filter bookings by selected date
+        function filterBookingsByDate() {
+            const datePicker = document.getElementById('datePicker');
+            const selectedDate = datePicker.value; // Get the selected date in YYYY-MM-DD format
+
+            // Loop through all month headers
+            const monthHeaders = document.querySelectorAll('.month-header');
+            monthHeaders.forEach(monthHeader => {
+                let hasVisibleBookings = false;
+
+                // Loop through all booking containers within the month
+                const bookingContainers = monthHeader.querySelectorAll('.booking-container');
+                bookingContainers.forEach(container => {
+                    const containerDate = container.getAttribute('data-date'); // Get the date of the container
+
+                    // Show or hide the container based on the selected date
+                    if (!selectedDate || containerDate === selectedDate) {
+                        container.style.display = 'block'; // Show the container
+                        hasVisibleBookings = true; // Mark the month as having visible bookings
+                    } else {
+                        container.style.display = 'none'; // Hide the container
+                    }
+                });
+
+                // Show or hide the month header based on whether it has visible bookings
+                if (hasVisibleBookings) {
+                    monthHeader.style.display = 'block'; // Show the month header
+                } else {
+                    monthHeader.style.display = 'none'; // Hide the month header
+                }
+            });
+        }
+
+        // Function to show all bookings
+        function showAllBookings() {
+            // Clear the date picker
+            const datePicker = document.getElementById('datePicker');
+            datePicker.value = '';
+
+            // Show all month headers and booking containers
+            const monthHeaders = document.querySelectorAll('.month-header');
+            monthHeaders.forEach(monthHeader => {
+                monthHeader.style.display = 'block'; // Show the month header
+
+                const bookingContainers = monthHeader.querySelectorAll('.booking-container');
+                bookingContainers.forEach(container => {
+                    container.style.display = 'block'; // Show the booking container
+                });
+            });
+        }
+
+        // Function to save all notes
+        function saveAllNotes() {
+            const notesCells = document.querySelectorAll('.notes-cell');
+            const updates = [];
+
+            // Collect all note changes
+            notesCells.forEach(cell => {
+                const bookingId = cell.getAttribute('data-booking-id');
+                const notes = cell.innerText.trim();
+                updates.push({ bookingId, notes });
+            });
+
+            // Send the updates to the server
+            fetch('/update-all-notes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ updates }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('All notes saved successfully!');
+                } else {
+                    alert('Failed to save notes. Please try again.');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while saving notes.');
+            });
+        }
+
+        // Function to hide flash messages after 4 seconds
+        function hideFlashMessages() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.opacity = '0';
+                    setTimeout(() => message.remove(), 500); // Remove after fade-out
+                }, 4000); // 4 seconds
+            });
+        }
+
+        // Call the function when the page loads
+        window.onload = () => {
+            hideFlashMessages();
+            filterBookingsByDate(); // Apply default filter (show all bookings)
+        };
+    </script>
+</body>
+</html>

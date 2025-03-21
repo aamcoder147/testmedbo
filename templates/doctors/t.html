@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>Patient Login</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+        }
+
+        body {
+            background: var(--primary);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .login-container {
+            background: var(--secondary);
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .login-container h1 {
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #88d1f1;
+        }
+
+        .input-group input {
+            width: auto;
+            padding: 0.8rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.5rem;
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .login-btn {
+            background: var(--accent);
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.error {
+            background: #f87171;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Flash messages -->
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <div class="login-container">
+        <h1>Patient Login</h1>
+        <form action="/patient-login" method="POST">
+            <div class="input-group">
+                <label for="patientIdentifier">Name or Phone Number</label>
+                <input type="text" id="patientIdentifier" name="patientIdentifier" required>
+            </div>
+            <button type="submit" class="login-btn">Login</button>
+        </form>
+    </form>
+        
+    <br>
+    <button class="login-btn" onclick="window.location.href='/'">Back to Home</button>
+    </form>
+    </div>
+
+    <script>
+        // Function to hide flash messages after 4 seconds
+        function hideFlashMessages() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.opacity = '0';
+                    setTimeout(() => message.remove(), 500); // Remove after fade-out
+                }, 4000); // 4 seconds
+            });
+        }
+
+        // Call the function when the page loads
+        window.onload = hideFlashMessages;
+    </script>
+</body>
+</html>

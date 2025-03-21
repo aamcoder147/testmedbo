@@ -1,0 +1,1899 @@
+mb/app.py:
+from flask import Flask, render_template, json, request, redirect, url_for, send_from_directory, flash,jsonify
+import sqlite3
+import os
+from datetime import datetime, timedelta
+
+app = Flask(__name__, static_folder='static')
+
+# Required for flash messages
+app.secret_key = '1234'  # Replace with a real secret key
+
+# Initialize database
+def init_db():
+    if not os.path.exists('database'):
+        os.makedirs('database')
+    
+    conn = sqlite3.connect('database/bookings.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS bookings
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  doctor_id INTEGER,
+                  doctor_name TEXT,
+                  patient_name TEXT,
+                  patient_phone TEXT,
+                  booking_date TEXT,
+                  booking_time TEXT,
+                  notes TEXT,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# Load doctors data
+with open('doctors.json') as f:
+    doctors_data = json.load(f)
+
+@app.route('/')
+def home():
+    # Pass the doctors data to the index.html template
+    return render_template('index.html', doctors=doctors_data['doctors'])
+
+@app.route('/booking/<int:doctor_id>')
+def booking_page(doctor_id):
+    try:
+        doctor = next(d for d in doctors_data['doctors'] if d['id'] == doctor_id)
+        today = datetime.today().strftime('%Y-%m-%d')  # Get today's date
+        return render_template('doctors/booking.html', 
+                             doctor=doctor,
+                             doctor_id=doctor_id,
+                             today=today,
+                             availability=doctor['availability'])  # Pass availability to the template
+    except StopIteration:
+        return redirect(url_for('home'))
+
+@app.route('/doctors.json')
+def get_doctors():
+    return send_from_directory('.', 'doctors.json')
+
+@app.route('/confirm-booking', methods=['POST'])
+def confirm_booking():
+    # Get form data
+    doctor_id = request.form['doctor_id']
+    doctor_name = request.form['doctor_name']
+    patient_name = request.form['patient_name']
+    patient_phone = request.form['patient_phone']
+    booking_date = request.form['booking_date']
+    booking_time = request.form['booking_time']
+    selected_day = datetime.strptime(booking_date, '%Y-%m-%d').strftime('%A')
+    
+    # Find the doctor
+    doctor = next(d for d in doctors_data['doctors'] if d['id'] == int(doctor_id))
+    
+    # Validate booking rules
+    conn = sqlite3.connect('database/bookings.db')
+    c = conn.cursor()
+    
+    # Rule 1: Check if the booking date is in the past
+    today = datetime.today().strftime('%Y-%m-%d')
+    if booking_date < today:
+        flash('⛔ You cannot book on a date before today.', 'error')
+        return redirect(url_for('booking_page', doctor_id=doctor_id))
+    
+        # Check if the doctor is unavailable on the selected day
+    if "Unavilable" in doctor['availability'].get(selected_day, []):
+        flash('⛔ الطبيب غير متوفر في هذا اليوم.', 'error')
+        return redirect(url_for('booking_page', doctor_id=doctor_id))
+    
+    # Rule 2: Check if the same name has booked the same doctor within 5 days
+    c.execute('''SELECT * FROM bookings 
+                 WHERE patient_name = ? AND doctor_id = ? 
+                 AND DATE(booking_date) >= DATE(?, '-5 days')''',
+              (patient_name, doctor_id, booking_date))
+    if c.fetchone():
+        flash('⛔ You can only book the same doctor once every 5 days.', 'error')
+        return redirect(url_for('booking_page', doctor_id=doctor_id))
+    
+    # Rule 10: Check if the time slot is already booked
+    c.execute('''SELECT * FROM bookings 
+                 WHERE doctor_id = ? AND booking_date = ? AND booking_time = ?''',
+              (doctor_id, booking_date, booking_time))
+    if c.fetchone():
+        flash('⛔ This time slot is already booked. Please choose another time.', 'error')
+        return redirect(url_for('booking_page', doctor_id=doctor_id))
+    
+    # Rule 11: Check if the same name or phone has a booking on the same day
+    c.execute('''SELECT * FROM bookings 
+                 WHERE (patient_name = ? OR patient_phone = ?) AND booking_date = ?''',
+              (patient_name, patient_phone, booking_date))
+    if c.fetchone():
+        flash('⛔ You already have a booking on this day. Only one booking per day is allowed.', 'error')
+
+    
+    # Save to database
+        c.execute('''INSERT INTO bookings 
+                 (doctor_id, doctor_name, patient_name, patient_phone, booking_date, booking_time)
+                 VALUES (?, ?, ?, ?, ?, ?)''',
+              (doctor_id, doctor_name, patient_name, patient_phone, booking_date, booking_time))
+    conn.commit()
+
+    c.execute('''INSERT INTO bookings 
+                 (doctor_id, doctor_name, patient_name, patient_phone, booking_date, booking_time)
+                 VALUES (?, ?, ?, ?, ?, ?)''',
+              (doctor_id, doctor_name, patient_name, patient_phone, booking_date, booking_time))
+    conn.commit()
+    
+    # Get the last inserted booking ID
+    booking_id = c.lastrowid
+    conn.close()
+    
+    # Redirect to confirmation page with booking ID
+    return redirect(url_for('confirmation', 
+                          booking_id=booking_id,
+                          doctor_name=doctor_name,
+                          patient_name=patient_name,
+                          booking_date=booking_date,
+                          booking_time=booking_time))
+
+@app.route('/confirmation')
+def confirmation():
+    booking_id = request.args.get('booking_id')
+    if not booking_id:
+        return redirect(url_for('home'))
+    
+    return render_template('confirmation.html',
+                         booking_id=booking_id,
+                         doctor_name=request.args.get('doctor_name'),
+                         patient_name=request.args.get('patient_name'),
+                         booking_date=request.args.get('booking_date'),
+                         booking_time=request.args.get('booking_time'))
+
+@app.route('/delete-booking/<int:booking_id>', methods=['POST'])
+def delete_booking(booking_id):
+    # Delete the booking from the database
+    conn = sqlite3.connect('database/bookings.db')
+    c = conn.cursor()
+    
+    # Get booking details before deletion
+    c.execute('SELECT * FROM bookings WHERE id = ?', (booking_id,))
+    booking = c.fetchone()
+    
+    if booking:
+        # Delete the booking
+        c.execute('DELETE FROM bookings WHERE id = ?', (booking_id,))
+        conn.commit()
+        flash('✅ Your booking has been successfully deleted.', 'success')
+    else:
+        flash('⛔ Booking not found. It may have already been deleted.', 'error')
+    
+    conn.close()
+    
+    # Redirect based on the source of the request
+    source = request.form.get('source')
+    if source == 'confirmation':
+        return redirect(url_for('home'))  # Redirect to the home page
+    elif source == 'dashboard':
+        patient_identifier = request.form.get('patient_identifier')
+        return redirect(url_for('patient_dashboard', patient_identifier=patient_identifier))
+    else:
+        return redirect(url_for('home'))  # Default fallback
+
+@app.route('/doctor-login', methods=['GET', 'POST'])
+def doctor_login():
+    if request.method == 'POST':
+        doctor_name = request.form['doctorName']
+        doctor_id = request.form['doctorId']
+        
+        # Check if the doctor exists
+        doctor = next((d for d in doctors_data['doctors'] if d['name'] == doctor_name and str(d['id']) == doctor_id), None)
+        
+        if doctor:
+            return redirect(url_for('doctor_dashboard', doctor_id=doctor_id))
+        else:
+            flash('⛔ Invalid doctor name or ID.', 'error')
+            return redirect(url_for('doctor_login'))  # Redirect back to the login page
+    
+    return render_template('doctor_login.html')
+@app.route('/doctor-dashboard/<int:doctor_id>')
+def doctor_dashboard(doctor_id):
+    # Fetch bookings for the doctor, ordered by date and time
+    conn = sqlite3.connect('database/bookings.db')
+    c = conn.cursor()
+    c.execute('''SELECT * FROM bookings 
+                 WHERE doctor_id = ? 
+                 ORDER BY booking_date ASC, booking_time ASC''', (doctor_id,))
+    bookings = c.fetchall()
+    conn.close()
+    
+    # Organize bookings by month and then by day
+    bookings_by_month = {}
+    for booking in bookings:
+        booking_date = datetime.strptime(booking[5], '%Y-%m-%d')
+        month_year = booking_date.strftime('%B %Y')  # e.g., "October 2023"
+        day = booking_date.strftime('%Y-%m-%d')      # e.g., "2023-10-05"
+        
+        if month_year not in bookings_by_month:
+            bookings_by_month[month_year] = {}
+        
+        if day not in bookings_by_month[month_year]:
+            bookings_by_month[month_year][day] = []
+        
+        bookings_by_month[month_year][day].append(booking)
+    
+    return render_template('doctor_dashboard.html', 
+                         bookings_by_month=bookings_by_month,
+                         doctor_id=doctor_id)  # Pass doctor_id to the template
+
+@app.route('/update-notes/<int:booking_id>', methods=['POST'])
+def update_notes(booking_id):
+    notes = request.form['notes']
+    doctor_id = request.form['doctor_id']  # Get doctor_id from the form
+    
+    # Update the booking with notes
+    conn = sqlite3.connect('database/bookings.db')
+    c = conn.cursor()
+    c.execute('''UPDATE bookings 
+                 SET notes = ? 
+                 WHERE id = ?''', (notes, booking_id))
+    flash('✅ Notes updated successfully.', 'success')
+    conn.commit()
+    conn.close()
+
+    return redirect(url_for('doctor_dashboard', doctor_id=doctor_id))  # Pass doctor_id as a URL # Pass doctor_id as a URL parameter
+
+@app.route('/update-all-notes', methods=['POST'])
+def update_all_notes():
+    data = request.get_json()
+    updates = data.get('updates', [])
+
+    try:
+        conn = sqlite3.connect('database/bookings.db')
+        c = conn.cursor()
+
+        for update in updates:
+            booking_id = update.get('bookingId')
+            notes = update.get('notes')
+            c.execute('''UPDATE bookings 
+                         SET notes = ? 
+                         WHERE id = ?''', (notes, booking_id))
+
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Error updating notes: {e}")
+        return jsonify({'success': False})
+    
+@app.route('/patient-login', methods=['GET', 'POST'])
+def patient_login():
+    if request.method == 'POST':
+        patient_identifier = request.form['patientIdentifier']
+        
+        # Check if the patient has any bookings
+        conn = sqlite3.connect('database/bookings.db')
+        c = conn.cursor()
+        c.execute('''SELECT * FROM bookings 
+                     WHERE patient_name = ? OR patient_phone = ? 
+                     ORDER BY booking_date, booking_time''', 
+                  (patient_identifier, patient_identifier))
+        bookings = c.fetchall()
+        conn.close()
+        
+        if bookings:
+            return redirect(url_for('patient_dashboard', patient_identifier=patient_identifier))
+        else:
+            flash('⛔ No bookings found for this name or phone number.', 'error')
+            return redirect(url_for('patient_login'))
+    
+    return render_template('patient_login.html')
+
+@app.route('/patient-dashboard/<patient_identifier>')
+def patient_dashboard(patient_identifier):
+    # Fetch bookings for the patient
+    conn = sqlite3.connect('database/bookings.db')
+    c = conn.cursor()
+    c.execute('''SELECT * FROM bookings 
+                 WHERE patient_name = ? OR patient_phone = ? 
+                 ORDER BY booking_date, booking_time''', 
+              (patient_identifier, patient_identifier))
+    bookings = c.fetchall()
+    conn.close()
+
+    # Get current datetime for comparison
+    current_datetime = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+    return render_template('patient_dashboard.html', 
+                         bookings=bookings, 
+                         current_datetime=current_datetime,
+                         patient_identifier=patient_identifier)
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
+--------------------------------------------------------------------------------
+
+mb/doctors.json:
+
+{
+    "doctors": [
+        {
+            "id": 1,
+            "name": "Dr. Michael Chen",
+            "availability1shortform": "Monday-Thursday: 7:00-8:00, Friday-Sunday: 8:00-9:00",
+            "specialization": "Dermatology",
+            "photo": "/static/doctors/doctor2.jpg",
+            "description": "Expert in cosmetic and medical dermatology with 8 years of practice.",
+            "availability": {
+                "Monday": ["7:00-7:20", "7:20-7:40", "7:40-8:00"],
+                "Tuesday": ["7:00-7:20", "7:20-7:40", "7:40-8:00"],
+                "Wednesday": ["7:00-7:20am", "7:20-7:40", "7:40-8:00"],
+                "Thursday": ["Unavilable"],
+                "Friday": ["Unavilable"],
+                "Saturday": ["8:00-8:20", "8:20-8:40", "8:40-9:00am", "9:00-9:20", "9:20-9:40", "9:40-10:00", "10:00-10:20", "10:20-10:40", "10:40-11:00"],
+                "Sunday": ["8:00-8:20", "8:20-8:40", "8:40-9:00"]
+            }
+            
+        },
+        {
+            "id": 3,
+            "name": "ali",
+            "availability1shortform": "Monday-Thursday: 7:00-8:00, Friday-Sunday: 8:00-9:00",
+            "specialization": "heart",
+            "photo": "/static/doctors/doctor3.jpg",
+            "description": "Expert in cosmetic and medical dermatology with 8 years of practice.",
+            "availability": {
+                "Monday": ["7:00-7:20", "7:20-7:40", "7:40-8:00"],
+                "Tuesday": ["7:00-7:20", "7:20-7:40", "7:40-8:00"],
+                "Wednesday": ["7:00-7:20am", "7:20-7:40", "7:40-8:00"],
+                "Thursday": ["Unavilable"],
+                "Friday": ["Unavilable"],
+                "Saturday": ["8:00-8:20", "8:20-8:40", "8:40-9:00am", "9:00-9:20", "9:20-9:40", "9:40-10:00", "10:00-10:20", "10:20-10:40", "10:40-11:00"],
+                "Sunday": ["8:00-8:20", "8:20-8:40", "8:40-9:00"]
+            }
+            
+        },
+        {
+            "id": 4,
+            "name": "mohammad",
+            "availability1shortform": "Monday-Thursday: 7:00-8:00, Friday-Sunday: 8:00-9:00",
+            "specialization": "heart",
+            "photo": "/static/doctors/doctor3.jpg",
+            "description": "Expert in cosmetic and medical dermatology with 8 years of practice.",
+            "availability": {
+                "Monday": ["7:00-7:20", "7:20-7:40", "7:40-8:00"],
+                "Tuesday": ["7:00-7:20", "7:20-7:40", "7:40-8:00"],
+                "Wednesday": ["7:00-7:20am", "7:20-7:40", "7:40-8:00"],
+                "Thursday": ["Unavilable"],
+                "Friday": ["Unavilable"],
+                "Saturday": ["8:00-8:20", "8:20-8:40", "8:40-9:00am", "9:00-9:20", "9:20-9:40", "9:40-10:00", "10:00-10:20", "10:20-10:40", "10:40-11:00"],
+                "Sunday": ["8:00-8:20", "8:20-8:40", "8:40-9:00"]
+            }
+            
+        },
+        {
+            "id": 2,
+            "name": "Dr. Sarah Johnson",
+            "specialization": "Cardiology",
+            "availability1shortform": "Monday-Thursday: 9:00-10:30, Friday-Sunday: 11:00-12:30",
+            "photo": "/static/doctors/doctor1.jpg",
+            "description": "Board-certified cardiologist with 10+ years experience.",
+            "availability": {
+                "Monday": ["7:10-7:30", "9:30-10:00", "10:00-10:30"],
+                "Tuesday": ["9:00-9:30", "9:30-10:00", "10:00-10:30"],
+                "Wednesday": ["Unavilable"],
+                "Thursday": ["Unavilable"],
+                "Friday": ["11:00-11:30", "11:30-12:00", "12:00-12:30"],
+                "Saturday": ["11:00-11:30", "11:30-12:00", "12:00-12:30"],
+                "Sunday": ["11:00-11:30", "11:30-12:00", "12:00-12:30"]
+            }
+        }
+    ]
+}
+
+------------------------------------------------------------------------------------
+
+mb/tmplates/index.html:
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedBook - Doctor Appointment Booking</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        body {
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .navbar {
+            padding: 1.5rem 5%;
+            background: var(--primary);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .search-container {
+            background: var(--secondary);
+            padding: 2.5rem;
+            border-radius: 1.5rem;
+            margin: 2rem auto;
+            max-width: 1200px;
+        }
+
+        .search-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group i {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--accent);
+        }
+
+        select, input {
+            width: 100%;
+            padding: 1rem 1rem 1rem 2.5rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.75rem;
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .search-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            cursor: pointer;
+        }
+
+        .doctors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .doctor-card {
+            background: var(--secondary);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: transform 0.3s;
+        }
+
+        .doctor-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .doctor-photo {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border-radius: 0.5rem;
+        }
+
+        .book-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+
+        .availability {
+            margin: 1rem 0;
+            color: #88d1f1;
+        }
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+        .flash-message.success {
+            background: #4ade80;
+        }
+        .flash-message.error {
+            background: #f87171;
+        }
+        .login-btn {
+            background: #4ade80;
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            margin-left: auto; /* Align to the right */
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Flash messages -->
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+
+
+
+    <nav class="navbar">
+        <button class="login-btn" onclick="window.location.href='/doctor-login'">Doctor Login</button>
+        <button class="login-btn" onclick="window.location.href='/patient-login'" style="margin-left: 1rem;">Patient Login</button>
+    </div>
+
+    <nav class="navbar">
+        <div class="logo">MedBook</div>
+    </nav>
+
+    <div class="search-container">
+        <form class="search-form" id="searchForm">
+            <div class="input-group">
+                <i class="fas fa-map-marker-alt"></i>
+                <select id="region">
+                    <option value="">All Regions</option>
+                    <option>Central District</option>
+                    <option>Northern Region</option>
+                    <option>Southern Region</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-stethoscope"></i>
+                <select id="specialization">
+                    <option value="">All Specialties</option>
+                    <option>Cardiology</option>
+                    <option>Dermatology</option>
+                    <option>Pediatrics</option>
+                    <option>Orthopedics</option>
+                    <option>heart</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-user-md"></i>
+                <input type="text" id="doctorName" placeholder="Doctor Name">
+            </div>
+
+            <button type="button" class="search-btn" onclick="searchDoctors()">
+                <i class="fas fa-search"></i> Search
+            </button>
+        </form>
+    </div>
+
+    <div class="doctors-grid" id="resultsContainer">
+        {% for doctor in doctors %}
+        <div class="doctor-card">
+            <img src="{{ doctor.photo }}" class="doctor-photo" alt="{{ doctor.name }}">
+            <h3>{{ doctor.name }}</h3>
+            <p>{{ doctor.specialization }}</p>
+            <div class="availability">
+                <p><strong>Availability:</strong> {{ doctor.availability1shortform }}</p>
+            </div>
+            <button class="book-btn" onclick="window.location.href='/booking/{{ doctor.id }}'">Book Now</button>
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        function searchDoctors() {
+            const region = document.getElementById('region').value;
+            const specialization = document.getElementById('specialization').value;
+            const nameQuery = document.getElementById('doctorName').value.toLowerCase();
+
+            const doctors = JSON.parse('{{ doctors | tojson | safe }}');
+            const filtered = doctors.filter(doctor => {
+                const regionMatch = !region || doctor.region === region;
+                const specMatch = !specialization || doctor.specialization === specialization;
+                const nameMatch = !nameQuery || doctor.name.toLowerCase().includes(nameQuery);
+                
+                return regionMatch && specMatch && nameMatch;
+            });
+
+            displayResults(filtered);
+        }
+
+        function displayResults(doctors) {
+            const container = document.getElementById('resultsContainer');
+            container.innerHTML = '';
+
+            doctors.forEach(doctor => {
+                const card = document.createElement('div');
+                card.className = 'doctor-card';
+                card.innerHTML = `
+                    <img src="${doctor.photo}" class="doctor-photo" alt="${doctor.name}">
+                    <h3>${doctor.name}</h3>
+                    <p>${doctor.specialization}</p>
+                    <div class="availability">
+                        <p><strong>Availability:</strong> ${doctor.availability1shortform}</p>
+                    </div>
+                    <button class="book-btn" onclick="window.location.href='/booking/${doctor.id}'">Book Now</button>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // Show all doctors initially
+        searchDoctors();
+
+</script>
+<script>
+    // Function to hide flash messages after 4 seconds
+    function hideFlashMessages() {
+        const flashMessages = document.querySelectorAll('.flash-message');
+        flashMessages.forEach(message => {
+            setTimeout(() => {
+                message.style.opacity = '0';
+                setTimeout(() => message.remove(), 500); // Remove after fade-out
+            }, 4000); // 4 seconds
+        });
+    }
+
+    // Call the function when the page loads
+    window.onload = hideFlashMessages;
+</script>
+</body>
+</html>
+----------------------------------------------------------------------------------------
+
+mb/tmplates/confirmation.html:
+
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Booking Confirmation</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+    
+        body {
+            background: linear-gradient(135deg, #1a1a2e, #0d0f18);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+    
+        .booking-container {
+            background: var(--secondary);
+            border-radius: 1.5rem;
+            box-shadow: var(--shadow);
+            padding: 2rem 3rem;
+            max-width: 500px;
+            width: 100%;
+            animation: fadeIn 0.5s ease-out;
+        }
+    
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    
+        h1 {
+            text-align: center;
+            color: var(--accent);
+            margin-bottom: 1rem;
+        }
+    
+        .booking-form {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+    
+        .booking-form h2 {
+            margin-top: 0;
+            color: var(--accent);
+        }
+    
+        p {
+            margin: 0.5rem 0;
+            line-height: 1.5;
+        }
+    
+        p strong {
+            color: var(--accent);
+        }
+    
+        button {
+            background: var(--accent);
+            border: none;
+            padding: 0.8rem 1.5rem;
+            color: white;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.3s, transform 0.3s;
+            width: 100%;
+        }
+    
+        button:hover {
+            background: #0ba4d1;
+            transform: translateY(-2px);
+        }
+    
+        button:active {
+            transform: translateY(0);
+        }
+    
+        @media (max-width: 600px) {
+            .booking-container {
+                padding: 1.5rem 1rem;
+            }
+        }
+
+        .confirmation-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: #16213e;
+            border-radius: 1.5rem;
+            color: #e6e6e6;
+            text-align: center;
+        }
+        .confirmation-details {
+            margin-bottom: 2rem;
+        }
+        .delete-btn {
+            background: #f87171;
+            color: white;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .delete-btn:hover {
+            background: #dc2626;
+        }
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.error {
+            background: #f87171;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+
+        <!-- Flash messages -->
+        <div class="flash-messages">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-message {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+    <div class="booking-container">
+        <h1>Booking Confirmed!</h1>
+        <div class="booking-form">
+            <h2>Appointment Details</h2>
+            <p><strong>Doctor:</strong> {{ doctor_name }}</p>
+            <p><strong>Patient Name:</strong> {{ patient_name }}</p>
+            <p><strong>Date:</strong> {{ booking_date }}</p>
+            <p><strong>Time:</strong> {{ booking_time }}</p>
+        </div>
+        <!-- Delete Booking Button -->
+        <form action="/delete-booking/{{ booking_id }}" method="POST">
+            <input type="hidden" name="source" value="confirmation">
+            <button type="submit" class="delete-btn">Delete My Booking</button>
+        </form>
+        
+        <br>
+        <button onclick="window.location.href='/'">Back to Home</button>
+        </form>
+    </div>
+</body>
+</html>
+
+
+-------------------------------------------------------------------------------
+mb/tmplates/doctor_login.html:
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Doctor Login</title>
+    <style>
+        body {
+            background: #1a1a2e;
+            color: #e6e6e6;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .login-container {
+            background: #16213e;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .login-container h1 {
+            color: #0ea5e9;
+            margin-bottom: 1.5rem;
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #88d1f1;
+        }
+
+        .input-group input {
+            width:fit-content;
+            padding: 0.8rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.5rem;
+            background: #1a1a2e;
+            color: #e6e6e6;
+        }
+
+        .login-btn {
+            background: #0ea5e9;
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.error {
+            background: #f87171;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Flash messages -->
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <div class="login-container">
+        <h1>Doctor Login</h1>
+        <form action="/doctor-login" method="POST">
+            <div class="input-group">
+                <label for="doctorName">Doctor Name</label>
+                <input type="text" id="doctorName" name="doctorName" required>
+            </div>
+            <div class="input-group">
+                <label for="doctorId">Doctor ID</label>
+                <input type="text" id="doctorId" name="doctorId" required>
+            </div>
+            <button type="submit" class="login-btn">Login</button>
+        </form>
+    </div>
+    <script>
+        // Function to hide flash messages after 4 seconds
+        function hideFlashMessages() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.opacity = '0';
+                    setTimeout(() => message.remove(), 500); // Remove after fade-out
+                }, 4000); // 4 seconds
+            });
+        }
+
+        // Call the function when the page loads
+        window.onload = hideFlashMessages;
+    </script>
+</body>
+</html>
+---------------------------------------------------------------------------------------
+mb/tmplates/doctor_dashboard.html:
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Doctor Dashboard</title>
+    <style>
+        :root {
+            --secondary: #16213e; /* Define the secondary color */
+        }
+
+        body {
+            background: #1a1a2e;
+            color: #e6e6e6;
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 2rem;
+        }
+
+        h1 {
+            color: #0ea5e9;
+        }
+
+        h2 {
+            color: #4CAF50;
+        }
+
+        h3 {
+            color: #88d1f1;
+            margin-top: 1.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+            table-layout: auto; /* Fit table to content */
+        }
+
+        th, td {
+            padding: 1rem;
+            border: 1px solid #2c3a5a;
+            text-align: left;
+        }
+
+        th {
+            background: #16213e;
+            color: #0ea5e9;
+        }
+
+        .notes-cell {
+            white-space: pre-wrap; /* Preserve line breaks */
+            word-wrap: break-word; /* Break long words */
+            min-width: 200px; /* Minimum width for notes cell */
+        }
+
+        .save-all-btn {
+            background: #0ea5e9;
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+        }
+
+        .show-all-btn {
+            background: #4CAF50;
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+        }
+
+        .date-filter {
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .date-filter label {
+            font-size: 1.2rem;
+            color: #88d1f1;
+        }
+
+        .date-filter input {
+            padding: 0.5rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.5rem;
+            background: #1a1a2e;
+            color: #e6e6e6;
+        }
+
+        .month-header {
+            margin-top: 2rem;
+        }
+
+        .booking-container {
+            max-width: auto;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: var(--secondary);
+            border-radius: 1.5rem;;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.721);
+        }
+
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.error {
+            background: #f87171;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+        <!-- Flash messages -->
+        <div class="flash-messages">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-message {{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+    <div class="booking-container">
+    <h1>Doctor Dashboard</h1>
+
+    <!-- Date Filter and Save All Button -->
+    <div class="date-filter">
+        <label for="datePicker">Choose a Date:</label>
+        <input type="date" id="datePicker" onchange="filterBookingsByDate()">
+        <button class="show-all-btn" onclick="showAllBookings()">Show All</button>
+        <button class="save-all-btn" onclick="saveAllNotes()">Save All</button>
+    </div>
+
+    <!-- Bookings by Month -->
+    {% for month_year, days in bookings_by_month.items() %}
+    <div class="month-header" data-month="{{ month_year }}">
+        <h2>{{ month_year }}</h2>
+        {% for day, bookings in days.items() %}
+        <div class="booking-container" data-date="{{ day }}">
+            <h3>{{ day }}</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Patient Name</th>
+                        <th>Phone Number</th>
+                        <th>Time</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for booking in bookings %}
+                    <tr>
+                        <td>{{ booking[3] }}</td>
+                        <td>{{ booking[4] }}</td>
+                        <td>{{ booking[6] }}</td>
+                        <td class="notes-cell" contenteditable="true" data-booking-id="{{ booking[0] }}">{{ booking[7] or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+
+    <!-- JavaScript for Date Filtering and Save All -->
+    <script>
+        // Function to filter bookings by selected date
+        function filterBookingsByDate() {
+            const datePicker = document.getElementById('datePicker');
+            const selectedDate = datePicker.value; // Get the selected date in YYYY-MM-DD format
+
+            // Loop through all month headers
+            const monthHeaders = document.querySelectorAll('.month-header');
+            monthHeaders.forEach(monthHeader => {
+                let hasVisibleBookings = false;
+
+                // Loop through all booking containers within the month
+                const bookingContainers = monthHeader.querySelectorAll('.booking-container');
+                bookingContainers.forEach(container => {
+                    const containerDate = container.getAttribute('data-date'); // Get the date of the container
+
+                    // Show or hide the container based on the selected date
+                    if (!selectedDate || containerDate === selectedDate) {
+                        container.style.display = 'block'; // Show the container
+                        hasVisibleBookings = true; // Mark the month as having visible bookings
+                    } else {
+                        container.style.display = 'none'; // Hide the container
+                    }
+                });
+
+                // Show or hide the month header based on whether it has visible bookings
+                if (hasVisibleBookings) {
+                    monthHeader.style.display = 'block'; // Show the month header
+                } else {
+                    monthHeader.style.display = 'none'; // Hide the month header
+                }
+            });
+        }
+
+        // Function to show all bookings
+        function showAllBookings() {
+            // Clear the date picker
+            const datePicker = document.getElementById('datePicker');
+            datePicker.value = '';
+
+            // Show all month headers and booking containers
+            const monthHeaders = document.querySelectorAll('.month-header');
+            monthHeaders.forEach(monthHeader => {
+                monthHeader.style.display = 'block'; // Show the month header
+
+                const bookingContainers = monthHeader.querySelectorAll('.booking-container');
+                bookingContainers.forEach(container => {
+                    container.style.display = 'block'; // Show the booking container
+                });
+            });
+        }
+
+        // Function to save all notes
+        function saveAllNotes() {
+            const notesCells = document.querySelectorAll('.notes-cell');
+            const updates = [];
+
+            // Collect all note changes
+            notesCells.forEach(cell => {
+                const bookingId = cell.getAttribute('data-booking-id');
+                const notes = cell.innerText.trim();
+                updates.push({ bookingId, notes });
+            });
+
+            // Send the updates to the server
+            fetch('/update-all-notes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ updates }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('All notes saved successfully!');
+                } else {
+                    alert('Failed to save notes. Please try again.');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while saving notes.');
+            });
+        }
+
+        // Function to hide flash messages after 4 seconds
+        function hideFlashMessages() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.opacity = '0';
+                    setTimeout(() => message.remove(), 500); // Remove after fade-out
+                }, 4000); // 4 seconds
+            });
+        }
+
+        // Call the function when the page loads
+        window.onload = () => {
+            hideFlashMessages();
+            filterBookingsByDate(); // Apply default filter (show all bookings)
+        };
+    </script>
+</body>
+</html>
+------------------------------------------------------------------------------------------
+mb/tmplates/patient_login.html:
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>Patient Login</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+        }
+
+        body {
+            background: var(--primary);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .login-container {
+            background: var(--secondary);
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .login-container h1 {
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #88d1f1;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.5rem;
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .login-btn {
+            background: var(--accent);
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.error {
+            background: #f87171;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Flash messages -->
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <div class="login-container">
+        <h1>Patient Login</h1>
+        <form action="/patient-login" method="POST">
+            <div class="input-group">
+                <label for="patientIdentifier">Name or Phone Number</label>
+                <input type="text" id="patientIdentifier" name="patientIdentifier" required>
+            </div>
+            <button type="submit" class="login-btn">Login</button>
+        </form>
+    </div>
+
+    <script>
+        // Function to hide flash messages after 4 seconds
+        function hideFlashMessages() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.opacity = '0';
+                    setTimeout(() => message.remove(), 500); // Remove after fade-out
+                }, 4000); // 4 seconds
+            });
+        }
+
+        // Call the function when the page loads
+        window.onload = hideFlashMessages;
+    </script>
+</body>
+</html>
+----------------------------------------------------------------------------------------------------
+mb/tmplates/patient_dashboard.html:
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>Patient Dashboard</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+            --error: #f87171;
+        }
+
+        body {
+            background: var(--primary);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 2rem;
+        }
+
+        .dashboard-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: var(--secondary);
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 2rem;
+        }
+
+        th, td {
+            padding: 1rem;
+            border: 1px solid #2c3a5a;
+            text-align: left;
+        }
+
+        th {
+            background: var(--secondary);
+            color: var(--accent);
+        }
+
+        .delete-btn {
+            background: var(--error);
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .delete-btn:hover {
+            background: #dc2626;
+        }
+
+        .delete-btn:disabled {
+            background: #6b7280;
+            cursor: not-allowed;
+        }
+        .flash-messages {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+    }
+
+    .flash-message {
+        padding: 1rem;
+        margin-bottom: 0.5rem;
+        border-radius: 0.5rem;
+        color: white;
+        animation: fadeInOut 5s ease-in-out;
+    }
+
+    .flash-message.success {
+        background: #4ade80; /* Green for success */
+    }
+
+    .flash-message.error {
+        background: #f87171; /* Red for error */
+    }
+
+    @keyframes fadeInOut {
+        0% { opacity: 0; transform: translateY(-20px); }
+        10% { opacity: 1; transform: translateY(0); }
+        90% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(-20px); }
+    }
+    </style>
+</head>
+<body>
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+    <div class="dashboard-container">
+        <h1>Your Bookings</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Doctor Name</th>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Doctor Notes</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for booking in bookings %}
+                <tr>
+                    <td>{{ booking[2] }}</td>
+                    <td>{{ booking[5] }}</td>
+                    <td>{{ booking[6] }}</td>
+                    <td>{{ booking[7] or 'No notes' }}</td>
+                    <td>
+                        {% set booking_datetime = booking[5] + ' ' + booking[6].split('-')[0] %}
+                        {% if booking_datetime > current_datetime %}
+                        <form action="/delete-booking/{{ booking[0] }}" method="POST">
+                            <input type="hidden" name="source" value="dashboard">
+                            <input type="hidden" name="patient_identifier" value="{{ patient_identifier }}">
+                            <button type="submit" class="delete-btn">Delete</button>
+                        </form>
+                        {% else %}
+                            <button class="delete-btn" disabled>Delete</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <script>
+        // Function to hide flash messages after 4 seconds
+        function hideFlashMessages() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.opacity = '0';
+                    setTimeout(() => message.remove(), 500); // Remove after fade-out
+                }, 4000); // 4 seconds
+            });
+        }
+    
+        // Call the function when the page loads
+        window.onload = hideFlashMessages;
+    </script>
+</body>
+</html>
+--------------------------------------------------------------------------------------------------
+mb/tmplates/doctors/booking.html:
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>Book Appointment</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+            --success: #4ade80;
+            --error: #f87171;
+        }
+
+        body {
+            background: var(--primary);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 2rem;
+        }
+
+        .booking-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: var(--secondary);
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .doctor-info {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .doctor-photo {
+            width: 200px;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 1rem;
+            border: 3px solid var(--accent);
+            box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+        }
+
+        .doctor-info h1 {
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .doctor-info h3 {
+            color: #88d1f1;
+            margin-bottom: 1rem;
+        }
+
+        .booking-form {
+            display: grid;
+            gap: 1.5rem;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 1rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        input, select {
+            padding: 1rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.75rem;
+            background: var(--primary);
+            color: var(--text);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(14, 165, 233, 0.2);
+            outline: none;
+        }
+
+        .book-btn {
+            background: linear-gradient(135deg, var(--accent), #0284c7);
+            color: white;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 1rem;
+        }
+
+        .book-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(14, 165, 233, 0.4);
+        }
+
+        .book-btn:active {
+            transform: translateY(0);
+        }
+
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.success {
+            background: var(--success);
+        }
+
+        .flash-message.error {
+            background: var(--error);
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+
+        @media (max-width: 768px) {
+            .doctor-info {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+
+            .doctor-photo {
+                width: 150px;
+                height: 150px;
+            }
+
+            .booking-container {
+                padding: 1rem;
+                margin: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Flash messages -->
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <div class="booking-container">
+        <div class="doctor-info">
+            <img src="{{ doctor.photo }}" class="doctor-photo" alt="{{ doctor.name }}">
+            <div>
+                <h1>{{ doctor.name }}</h1>
+                <h3>{{ doctor.specialization }}</h3>
+                <p>{{ doctor.description }}</p>
+            </div>
+        </div>
+        
+        <form class="booking-form" method="POST" action="/confirm-booking">
+            <input type="hidden" name="doctor_id" value="{{ doctor.id }}">
+            <input type="hidden" name="doctor_name" value="{{ doctor.name }}">
+            
+            <div class="form-group">
+                <label>Date:</label>
+                <input type="date" id="bookingDate" name="booking_date" required min="{{ today }}">
+            </div>
+            
+            <div class="form-group">
+                <label>Available Time Slots:</label>
+                <select id="bookingTime" name="booking_time" required>
+                    <!-- Time slots will be populated by JavaScript -->
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>Full Name:</label>
+                <input type="text" name="patient_name" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Phone Number:</label>
+                <input type="number" name="patient_phone" required>
+            </div>
+            
+            <button type="submit" class="book-btn">Confirm Booking</button>
+        </form>
+    </div>
+
+    <script>
+        // Get today's date in YYYY-MM-DD format
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('bookingDate').setAttribute('min', today);
+
+        // Doctor's availability from JSON
+        const doctorAvailability = JSON.parse('{{ doctor.availability | tojson | safe }}');
+
+        // Function to get day of the week from a date string
+        function getDayOfWeek(dateString) {
+            const date = new Date(dateString);
+            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            return days[date.getDay()];
+        }
+
+        // Function to update time slots based on selected date
+        function updateTimeSlots() {
+            const dateInput = document.getElementById('bookingDate');
+            const timeSelect = document.getElementById('bookingTime');
+            
+            // Get the selected date
+            const selectedDate = dateInput.value;
+            if (!selectedDate) return;
+
+            // Get the day of the week
+            const dayOfWeek = getDayOfWeek(selectedDate);
+
+            // Get the time slots for the selected day
+            const timeSlots = doctorAvailability[dayOfWeek] || [];
+
+            // Clear existing options
+            timeSelect.innerHTML = '';
+
+            // Add new options
+            timeSlots.forEach(time => {
+                const option = document.createElement('option');
+                option.value = time;
+                option.textContent = time;
+                timeSelect.appendChild(option);
+            });
+        }
+
+
+
+        // Function to hide flash messages after 4 seconds
+        function hideFlashMessages() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.opacity = '0';
+                    setTimeout(() => message.remove(), 500); // Remove after fade-out
+                }, 4000); // 4 seconds
+            });
+        }
+    
+        // Call the function when the page loads
+        window.onload = hideFlashMessages;
+
+        // Add event listener to date input
+        document.getElementById('bookingDate').addEventListener('change', updateTimeSlots);
+
+        // Initialize time slots on page load
+        updateTimeSlots();
+    </script>
+</body>
+</html>
+-------------------------------------------------------------------------------------------------------------------
+
+mb/static/doctors/(doctors images)
+
+mb/database/bookings.db

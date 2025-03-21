@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>Book Appointment</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+            --success: #4ade80;
+            --error: #f87171;
+        }
+
+        body {
+            background: var(--primary);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 2rem;
+        }
+
+        .booking-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: var(--secondary);
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .doctor-info {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .doctor-photo {
+            width: 200px;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 1rem;
+            border: 3px solid var(--accent);
+            box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+        }
+
+        .doctor-info h1 {
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .doctor-info h3 {
+            color: #88d1f1;
+            margin-bottom: 1rem;
+        }
+
+        .booking-form {
+            display: grid;
+            gap: 1.5rem;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 1rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        input, select {
+            padding: 1rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.75rem;
+            background: var(--primary);
+            color: var(--text);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(14, 165, 233, 0.2);
+            outline: none;
+        }
+
+        .book-btn {
+            background: linear-gradient(135deg, var(--accent), #0284c7);
+            color: white;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 1rem;
+        }
+
+        .book-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(14, 165, 233, 0.4);
+        }
+
+        .book-btn:active {
+            transform: translateY(0);
+        }
+
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+
+        .flash-message.success {
+            background: var(--success);
+        }
+
+        .flash-message.error {
+            background: var(--error);
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+
+        @media (max-width: 768px) {
+            .doctor-info {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+
+            .doctor-photo {
+                width: 150px;
+                height: 150px;
+            }
+
+            .booking-container {
+                padding: 1rem;
+                margin: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Flash messages -->
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <div class="booking-container">
+        <div class="doctor-info">
+            <img src="{{ doctor.photo }}" class="doctor-photo" alt="{{ doctor.name }}">
+            <div>
+                <h1>{{ doctor.name }}</h1>
+                <h3>{{ doctor.specialization }}</h3>
+                <p>{{ doctor.province }}</p>
+                <p>{{ doctor.description }}</p>
+            </div>
+        </div>
+
+
+            <div class="doctor-info">
+                <div>
+                    <h1>{{ doctor.info }}</h1>
+                </div>
+            </div>
+        
+        <form class="booking-form" method="POST" action="/confirm-booking">
+            <input type="hidden" name="doctor_id" value="{{ doctor.id }}">
+            <input type="hidden" name="doctor_name" value="{{ doctor.name }}">
+            
+            <div class="form-group">
+                <label>Date:</label>
+                <input type="date" id="bookingDate" name="booking_date" required min="{{ today }}">
+            </div>
+            
+            <div class="form-group">
+                <label>Available Time Slots:</label>
+                <select id="bookingTime" name="booking_time" required>
+                    <!-- Time slots will be populated by JavaScript -->
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>Full Name:</label>
+                <input type="text" name="patient_name" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Phone Number:</label>
+                <input type="number"  max="9" name="patient_phone" required>
+            </div>
+            
+            <button type="submit" class="book-btn">Confirm Booking</button>
+        </form>
+    </div>
+
+    <script>
+        // Get today's date in YYYY-MM-DD format
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('bookingDate').setAttribute('min', today);
+
+        // Doctor's availability from JSON
+        const doctorAvailability = JSON.parse('{{ doctor.availability | tojson | safe }}');
+
+        // Function to get day of the week from a date string
+        function getDayOfWeek(dateString) {
+            const date = new Date(dateString);
+            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            return days[date.getDay()];
+        }
+
+        // Function to update time slots based on selected date
+        function updateTimeSlots() {
+            const dateInput = document.getElementById('bookingDate');
+            const timeSelect = document.getElementById('bookingTime');
+            
+            // Get the selected date
+            const selectedDate = dateInput.value;
+            if (!selectedDate) return;
+
+            // Get the day of the week
+            const dayOfWeek = getDayOfWeek(selectedDate);
+
+            // Get the time slots for the selected day
+            const timeSlots = doctorAvailability[dayOfWeek] || [];
+
+            // Clear existing options
+            timeSelect.innerHTML = '';
+
+            // Add new options
+            timeSlots.forEach(time => {
+                const option = document.createElement('option');
+                option.value = time;
+                option.textContent = time;
+                timeSelect.appendChild(option);
+            });
+        }
+
+
+
+        // Function to hide flash messages after 4 seconds
+        function hideFlashMessages() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(message => {
+                setTimeout(() => {
+                    message.style.opacity = '0';
+                    setTimeout(() => message.remove(), 500); // Remove after fade-out
+                }, 4000); // 4 seconds
+            });
+        }
+    
+        // Call the function when the page loads
+        window.onload = hideFlashMessages;
+
+        // Add event listener to date input
+        document.getElementById('bookingDate').addEventListener('change', updateTimeSlots);
+
+        // Initialize time slots on page load
+        updateTimeSlots();
+    </script>
+</body>
+</html>

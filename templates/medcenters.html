@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedBook - Doctor Appointment Booking</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        body {
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .navbar {
+            padding: 1.5rem 5%;
+            background: var(--primary);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .search-container {
+            background: var(--secondary);
+            padding: 2.5rem;
+            border-radius: 1.5rem;
+            margin: 2rem auto;
+            max-width: 1200px;
+        }
+
+        .search-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group i {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--accent);
+        }
+
+        select, input {
+            width: 100%;
+            padding: 1rem 1rem 1rem 2.5rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.75rem;
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .search-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            cursor: pointer;
+        }
+
+        .doctors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .doctor-card {
+            background: var(--secondary);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: transform 0.3s;
+        }
+
+        .doctor-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .doctor-photo {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border-radius: 0.5rem;
+        }
+
+        .book-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+
+        .availability {
+            margin: 1rem 0;
+            color: #88d1f1;
+        }
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+        .flash-message {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            color: white;
+            animation: fadeInOut 5s ease-in-out;
+        }
+        .flash-message.success {
+            background: #4ade80;
+        }
+        .flash-message.error {
+            background: #f87171;
+        }
+        .login-btn {
+            background: #4ade80;
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            margin-left: auto; /* Align to the right */
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-20px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+        .header {
+            background: linear-gradient(135deg, var(--secondary), var(--primary));
+            padding: 4rem 1rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 5%;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            transition: all 0.3s ease;
+        }
+
+        .navbar.scrolled {
+            background: rgba(22, 33, 62, 0.98);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent);
+            text-shadow: 0 0 15px rgba(14, 165, 233, 0.4);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: var(--text);
+            font-weight: 500;
+            transition: color 0.3s;
+            position: relative;
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: -5px;
+            left: 0;
+            background: var(--accent);
+            transition: width 0.3s;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .booking-section {
+            max-width: 1200px;
+            margin: 4rem auto;
+            padding: 0 2rem;
+            animation: slideUp 1s ease-out;
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .search-container {
+            background: var(--secondary);
+            padding: 2.5rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: transform 0.3s;
+        }
+
+        .search-container:hover {
+            transform: translateY(-5px);
+        }
+
+        .search-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group i {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--accent);
+        }
+
+        select, input {
+            width: 100%;
+            padding: 1rem 1rem 1rem 2.5rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            transition: all 0.3s;
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        select:focus, input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(14, 165, 233, 0.2);
+        }
+
+        .search-btn {
+            background: linear-gradient(135deg, var(--accent), #0284c7);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .search-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(14, 165, 233, 0.4);
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 4rem;
+        }
+
+        .feature-card {
+            background: var(--secondary);
+            padding: 2rem;
+            border-radius: 1rem;
+            text-align: center;
+            transition: all 0.3s;
+            border: 1px solid #2c3a5a;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .footer {
+            background: var(--secondary);
+            padding: 4rem 2rem;
+            margin-top: 6rem;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 3rem;
+        }
+
+        .footer-section h3 {
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+        }
+
+        .footer-links {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        .footer-links a {
+            color: var(--text);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: var(--accent);
+        }
+
+        .social-links {
+            display: flex;
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .social-links a {
+            font-size: 1.5rem;
+            color: var(--text);
+            transition: transform 0.3s;
+        }
+
+        .social-links a:hover {
+            color: var(--accent);
+            transform: translateY(-3px);
+        }
+
+        .copyright {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid #2c3a5a;
+            opacity: 0.8;
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            
+            .search-form {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    </style>
+</head>
+<body>
+    <!-- Flash messages -->
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+
+
+
+    <nav class="navbar">
+
+    </div>
+
+    <nav class="navbar">
+        <div class="logo">MedBook</div>
+        <button class="login-btn" onclick="window.location.href='/doctor-login'">Doctor Login</button>
+        <button class="login-btn" onclick="window.location.href='/patient-login'" style="margin-left: 1rem;">Patient Login</button>
+    </nav>
+
+    <div class="search-container">
+        <form class="search-form" id="searchForm">
+            <div class="input-group">
+                <i class="fas fa-map-marker-alt"></i>
+                <select id="province">
+                    <option value="">All provinces</option>
+                    <option>Central District</option>
+                    <option>Northern Region</option>
+                    <option>Southern province</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-stethoscope"></i>
+                <select id="specialization">
+                    <option value="">All Specialties</option>
+                    <option>Cardiology</option>
+                    <option>Dermatology</option>
+                    <option>Pediatrics</option>
+                    <option>Orthopedics</option>
+                    <option>heart</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-stethoscope"></i>
+                <select id="plc">
+                    <option value="">All plcs</option>
+                    <option>hos</option>
+                    <option>clc</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-user-md"></i>
+                <input type="text" id="doctorName" placeholder="اسم الطبيب">
+            </div>
+
+            <button type="button" class="search-btn" onclick="searchDoctors()">
+                <i class="fas fa-search"></i> Search
+            </button>
+        </form>
+    </div>
+
+    <div class="doctors-grid" id="resultsContainer">
+        {% for doctor in doctors %}
+        <div class="doctor-card">
+            <img src="{{ doctor.photo }}" class="doctor-photo" alt="{{ doctor.name }}">
+            <h3>{{ doctor.name }}</h3>
+            <p>{{ doctor.specialization }}</p>
+            <div class="availability">
+                <p><strong>Availability:</strong> {{ doctor.availability1shortform }}</p>
+            </div>
+            <button class="book-btn" onclick="window.location.href='/booking/{{ doctor.id }}'">Book Now</button>
+        </div>
+        {% endfor %}
+    </div>
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h3>Contact Us</h3>
+                <p>123 Medical Avenue</p>
+                <p>Health City, HC 12345</p>
+                <p>Phone: (123) 456-7890</p>
+                <p>Email: contact@medbook.com</p>
+            </div>
+            <div class="footer-section">
+                <h3>Quick Links</h3>
+                <div class="footer-links">
+                    <a href="#home">Home</a>
+                    <a href="#doctors">Doctors</a>
+                    <a href="#services">Services</a>
+                    <a href="#contact">Contact</a>
+                </div>
+            </div>
+            <div class="footer-section">
+                <h3>Follow Us</h3>
+                <div class="social-links">
+                    <a href="#"><i class="fab fa-facebook"></i></a>
+                    <a href="#"><i class="fab fa-twitter"></i></a>
+                    <a href="#"><i class="fab fa-instagram"></i></a>
+                    <a href="#"><i class="fab fa-linkedin"></i></a>
+                </div>
+            </div>
+        </div>
+        <div class="copyright">
+            © 2023 MedBook. All rights reserved. | Privacy Policy | Terms of Service
+        </div>
+    </footer>
+
+    <script>
+        window.addEventListener('scroll', () => {
+            const navbar = document.getElementById('navbar');
+            if (window.scrollY > 50) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+        });
+    </script>
+
+    <script>
+        function searchDoctors() {
+            const province = document.getElementById('province').value;
+            const plc = document.getElementById('plc').value;
+            const specialization = document.getElementById('specialization').value;
+            const nameQuery = document.getElementById('doctorName').value.toLowerCase();
+
+            const doctors = JSON.parse('{{ doctors | tojson | safe }}');
+            const filtered = doctors.filter(doctor => {
+                const provinceMatch = !province || doctor.province === province;
+                const plcMatch = !plc || doctor.plc === plc;
+                const specMatch = !specialization || doctor.specialization === specialization;
+                const nameMatch = !nameQuery || doctor.name.toLowerCase().includes(nameQuery);
+                
+                return plcMatch && specMatch && nameMatch;
+            });
+
+            displayResults(filtered);
+        }
+
+        function displayResults(doctors) {
+            const container = document.getElementById('resultsContainer');
+            container.innerHTML = '';
+
+            doctors.forEach(doctor => {
+                const card = document.createElement('div');
+                card.className = 'doctor-card';
+                card.innerHTML = `
+                    <img src="${doctor.photo}" class="doctor-photo" alt="${doctor.name}">
+                    <h3>${doctor.name}</h3>
+                    <p>${doctor.specialization}</p>
+                    <i class="fas fa-star"></i>
+                    <span>${doctor.rate}</span>
+                    <p>${doctor.province}</p>
+                    <div class="availability">
+                        <p><strong>Availability:</strong> ${doctor.availability1shortform}</p>
+                    </div>
+                    <button class="book-btn" onclick="window.location.href='/booking/${doctor.id}'">Book Now</button>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // Show all doctors initially
+        searchDoctors();
+
+</script>
+<script>
+    // Function to hide flash messages after 4 seconds
+    function hideFlashMessages() {
+        const flashMessages = document.querySelectorAll('.flash-message');
+        flashMessages.forEach(message => {
+            setTimeout(() => {
+                message.style.opacity = '0';
+                setTimeout(() => message.remove(), 500); // Remove after fade-out
+            }, 4000); // 4 seconds
+        });
+    }
+
+    // Call the function when the page loads
+    window.onload = hideFlashMessages;
+</script>
+</body>
+</html>

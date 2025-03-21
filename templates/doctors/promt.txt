@@ -1,0 +1,543 @@
+app.py:from flask import Flask, render_template, json, request, redirect, url_for,send_from_directory,jsonify
+from datetime import datetime, timedelta
+
+app = Flask(__name__, static_folder='static')
+
+# Load doctors data
+with open('doctors.json') as f:
+    doctors_data = json.load(f)
+
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+@app.route('/api/doctor/<int:doctor_id>')
+def doctor_details(doctor_id):
+    try:
+        doctor = next(d for d in doctors_data['doctors'] if d['id'] == doctor_id)
+        return jsonify(doctor)
+    except (StopIteration, KeyError):
+        return jsonify({"error": "Doctor not found"}), 404
+
+@app.route('/booking')
+def booking_page():
+    return render_template('doctors/booking.html')
+
+    
+@app.route('/doctors.json')
+def get_doctors():
+    return send_from_directory('.', 'doctors.json')
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000).............................doctors json: {
+    "doctors": [
+        {
+            "id": 1,
+            "name": "Dr. Sarah Johnson",
+            "specialization": "Cardiology",
+            "region": "Central District",
+            "photo": "/static/doctors/doctor1.jpg",
+            "description": "Board-certified cardiologist with 10+ years experience in heart health management.",
+            "availability": ["Mon: 9AM-12PM", "Wed: 2PM-5PM"],
+            "times": ["7:20-7:40", "7:40-8:00", "8:00-8:20", "8:20-8:40"]
+        },
+        {
+            "id": 2,
+            "name": "Dr. Michael Chen",
+            "specialization": "Dermatology",
+            "region": "Northern Region",
+            "photo": "/static/doctors/doctor2.jpg",
+            "description": "Expert in cosmetic and medical dermatology with 8 years of practice.",
+            "availability": ["Tue: 10AM-1PM", "Thu: 3PM-6PM"],
+            "times": ["9:00-9:30", "9:30-10:00", "10:00-10:30"]
+        }
+    ]
+},,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,templates/index.html: <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedBook - Doctor Appointment Booking</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        body {
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .navbar {
+            padding: 1.5rem 5%;
+            background: var(--primary);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .search-container {
+            background: var(--secondary);
+            padding: 2.5rem;
+            border-radius: 1.5rem;
+            margin: 2rem auto;
+            max-width: 1200px;
+        }
+
+        .search-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group i {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--accent);
+        }
+
+        select, input {
+            width: 100%;
+            padding: 1rem 1rem 1rem 2.5rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.75rem;
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .search-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            cursor: pointer;
+        }
+
+        .doctors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .doctor-card {
+            background: var(--secondary);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: transform 0.3s;
+        }
+
+        .doctor-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .doctor-photo {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border-radius: 0.5rem;
+        }
+
+        .book-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+
+        .availability {
+            margin: 1rem 0;
+            color: #88d1f1;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">MedBook</div>
+    </nav>
+
+    <div class="search-container">
+        <form class="search-form" id="searchForm">
+            <div class="input-group">
+                <i class="fas fa-map-marker-alt"></i>
+                <select id="region">
+                    <option value="">All Regions</option>
+                    <option>Central District</option>
+                    <option>Northern Region</option>
+                    <option>Southern Region</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-stethoscope"></i>
+                <select id="specialization">
+                    <option value="">All Specialties</option>
+                    <option>Cardiology</option>
+                    <option>Dermatology</option>
+                    <option>Pediatrics</option>
+                    <option>Orthopedics</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-user-md"></i>
+                <input type="text" id="doctorName" placeholder="Doctor Name">
+            </div>
+
+            <button type="button" class="search-btn" onclick="searchDoctors()">
+                <i class="fas fa-search"></i> Search
+            </button>
+        </form>
+    </div>
+
+    <div id="resultsContainer" class="doctors-grid"></div>
+
+    <script>
+        async function loadDoctors() {
+            try {
+                const response = await fetch('doctors.json');
+                if (!response.ok) throw new Error('Network response was not ok');
+                return await response.json();
+            } catch (error) {
+                console.error('Error loading doctors:', error);
+                return { doctors: [] }; // Return empty array as fallback
+            }
+        }
+    
+        async function searchDoctors() {
+            const region = document.getElementById('region').value;
+            const specialization = document.getElementById('specialization').value;
+            const nameQuery = document.getElementById('doctorName').value.toLowerCase();
+    
+            const jsonData = await loadDoctors();
+            const allDoctors = jsonData.doctors;
+    
+            const filtered = allDoctors.filter(doctor => {
+                const regionMatch = !region || doctor.region === region;
+                const specMatch = !specialization || doctor.specialization === specialization;
+                const nameMatch = !nameQuery || doctor.name.toLowerCase().includes(nameQuery);
+                
+                return regionMatch && specMatch && nameMatch;
+            });
+    
+            displayResults(filtered);
+        }
+    
+        function displayResults(doctors) {
+            const container = document.getElementById('resultsContainer');
+            container.innerHTML = doctors.length > 0 ? '' : '<p>No doctors found matching your criteria</p>';
+    
+            doctors.forEach(doctor => {
+                const card = document.createElement('div');
+                card.className = 'doctor-card';
+                card.innerHTML = `
+                    <img src="static/doctor/doctor${doctor.id}.jpg" class="doctor-photo" alt="${doctor.name}">
+                    <h3>${doctor.name}</h3>
+                    <p>${doctor.specialization}</p>
+                    <div class="availability">
+                        ${doctor.availability.join('<br>')}
+                    <button class="book-btn" onclick="window.location.href='/booking?id=${doctor.id}'">Book Now</button>
+                `;
+                container.appendChild(card);
+            });
+        }
+    
+        // Initial load when page opens
+        window.addEventListener('DOMContentLoaded', searchDoctors);
+    </script>
+</body>
+</html>,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,templates/doctors/booking.html: <!DOCTYPE html>
+<html>
+<head>
+    <title>Book Appointment</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0ea5e9;
+            --text: #e6e6e6;
+            --success: #4ade80;
+            --error: #f87171;
+        }
+    
+        body {
+            background: var(--primary);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            margin: 0;
+            padding: 2rem;
+        }
+    
+        .booking-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: var(--secondary);
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            animation: fadeIn 0.5s ease-out;
+        }
+    
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    
+        .doctor-info {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    
+        .doctor-photo {
+            width: 200px;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 1rem;
+            border: 3px solid var(--accent);
+            box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+        }
+    
+        .doctor-info h1 {
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+    
+        .doctor-info h3 {
+            color: #88d1f1;
+            margin-bottom: 1rem;
+        }
+    
+        .booking-form {
+            display: grid;
+            gap: 1.5rem;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 1rem;
+        }
+    
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+    
+        label {
+            font-weight: 600;
+            color: var(--accent);
+        }
+    
+        input, select {
+            padding: 1rem;
+            border: 2px solid #2c3a5a;
+            border-radius: 0.75rem;
+            background: var(--primary);
+            color: var(--text);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+    
+        input:focus, select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(14, 165, 233, 0.2);
+            outline: none;
+        }
+    
+        .book-btn {
+            background: linear-gradient(135deg, var(--accent), #0284c7);
+            color: white;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 1rem;
+        }
+    
+        .book-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(14, 165, 233, 0.4);
+        }
+    
+        .book-btn:active {
+            transform: translateY(0);
+        }
+    
+        #loadingMessage {
+            text-align: center;
+            padding: 2rem;
+            color: var(--accent);
+            font-size: 1.2rem;
+            animation: pulse 1.5s infinite;
+        }
+    
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+    
+        @media (max-width: 768px) {
+            .doctor-info {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+    
+            .doctor-photo {
+                width: 150px;
+                height: 150px;
+            }
+    
+            .booking-container {
+                padding: 1rem;
+                margin: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="booking-container" id="bookingContainer">
+        <!-- Loading message -->
+        <div id="loadingMessage">Loading doctor information...</div>
+    </div>
+    
+
+    <script>
+        async function loadDoctorDetails() {
+            // Get doctor ID from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const doctorId = urlParams.get('id');
+            
+            if (!doctorId) {
+                window.location.href = '/';
+                return;
+            }
+
+            try {
+                // Show loading message
+                document.getElementById('loadingMessage').style.display = 'block';
+                
+                // Fetch doctor details
+                const response = await fetch(`/api/doctor/${doctorId}`);
+                if (!response.ok) throw new Error('Doctor not found');
+                
+                const doctor = await response.json();
+                renderBookingPage(doctor);
+            } catch (error) {
+                console.error('Error:', error);
+                window.location.href = '/';
+            } finally {
+                // Hide loading message
+                document.getElementById('loadingMessage').style.display = 'none';
+            }
+        }
+
+        function renderBookingPage(doctor) {
+            const container = document.getElementById('bookingContainer');
+            container.innerHTML = `
+                <div class="doctor-info">
+                    <img src="static/doctor/doctor${doctor.id}.jpg" class="doctor-photo" alt="${doctor.name}">
+                    <div>
+                        <h1>${doctor.name}</h1>
+                        <h3>${doctor.specialization}</h3>
+                        <p>${doctor.description}</p>
+                        <p><strong>Available Days:</strong> ${doctor.availability.join(', ')}</p>
+                    </div>
+                </div>
+                
+                <form class="booking-form" onsubmit="return validateBooking(event)">
+                    <label>Date:</label>
+                    <input type="date" id="bookingDate" required>
+                    
+                    <label>Available Time Slots:</label>
+                    <select id="bookingTime" required>
+                        ${doctor.times.map(time => `<option value="${time}">${time}</option>`).join('')}
+                    </select>
+                    
+                    <label>Full Name:</label>
+                    <input type="text" id="patientName" required>
+                    
+                    <label>Phone Number:</label>
+                    <input type="tel" id="patientPhone" required>
+                    
+                    <button type="submit" class="book-btn">Confirm Booking</button>
+                </form>
+            `;
+        }
+
+        function validateBooking(event) {
+            event.preventDefault();
+            
+            const bookingDate = document.getElementById('bookingDate').value;
+            const bookingTime = document.getElementById('bookingTime').value;
+            
+            const selectedDateTime = new Date(`${bookingDate}T${bookingTime.split('-')[0]}`);
+            const currentDateTime = new Date();
+            const oneHour = 60 * 60 * 1000;
+
+            if (selectedDateTime - currentDateTime < oneHour) {
+                alert('Booking must be made at least 1 hour in advance.');
+                return false;
+            }
+
+            alert('Booking successful!');
+            return true;
+        }
+
+        // Load doctor details when page loads
+        window.onload = loadDoctorDetails;
+    </script>
+</body>
+</html>........................... this is my clinics booking system ;;;;;;;;;;;;;;;;;(now do the following...... when the booker book and confirm the booking ...... he moved to the confirmation page which shows the booking detiles and the booking cod which generated as the following: (doctor id-booking date * 2-booking time
+
+as example if the:
+clinic code is DERY
+booking date is 02-03-2025 multiplied by 2
+and the time period is is from 7:20am to 7:40am
+
+the code will be:   DERY-04064050-620-640am)....... 9- the bookers detiles saved in datasae to prevint giving tow difrint names the same time slot for same doctor at same day
+
+10- when a time slot in someday is booked no one can book it again exept the booker delet the book (the time slot be un selectable)
+
+11- the same name or phone cant make two bookes at the same day even for difrint doctors 
+
+12- the same name or phone number cant book for the same doctor only after 5 days from the first book
+
+14- if a name delet a book the hes information deleted from the databaSE and the time slot he booked can be booked again)
