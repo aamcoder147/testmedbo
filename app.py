@@ -311,4 +311,4 @@ def patient_dashboard(patient_identifier):
                          current_datetime=current_datetime,
                          patient_identifier=patient_identifier)
 if __name__ == '__main__':
-    app.run(debug=True, port=5002)
+    app.run()
